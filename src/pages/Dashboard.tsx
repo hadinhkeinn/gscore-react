@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell } from "recharts"
 import { scoreApi } from "@/api/score-api"
-import { ScoreReportData, TopStudentResponse } from "@/types/score-data"
+import { DashboardSummaryData } from "@/types/score-data"
 import { Loader } from "@/components/ui/loader"
 
 // Chart configurations
@@ -65,8 +65,7 @@ interface DashboardStats {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [reportData, setReportData] = useState<ScoreReportData | null>(null)
-  const [topStudentsData, setTopStudentsData] = useState<TopStudentResponse | null>(null)
+  const [dashboardData, setDashboardData] = useState<DashboardSummaryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -76,14 +75,10 @@ export default function Dashboard() {
         setLoading(true)
         setError(null)
         
-        // Fetch both report data and top students data
-        const [reportResponse, topStudentsResponse] = await Promise.all([
-          scoreApi.getScoreReport(),
-          scoreApi.getTopStudents()
-        ])
+        // Fetch dashboard summary data
+        const dashboardResponse = await scoreApi.getDashboardSummary()
         
-        setReportData(reportResponse)
-        setTopStudentsData(topStudentsResponse)
+        setDashboardData(dashboardResponse)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch dashboard data')
       } finally {
@@ -129,7 +124,7 @@ export default function Dashboard() {
     )
   }
 
-  if (!reportData || !topStudentsData) {
+  if (!dashboardData) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Card className="w-full max-w-md">
@@ -144,10 +139,10 @@ export default function Dashboard() {
 
   // Calculate dashboard statistics
   const dashboardStats: DashboardStats = {
-    totalScores: reportData.summary.total_scores_analyzed,
-    averageScore: topStudentsData.summary.all_students_stats.average_score_mean,
-    topPerformers: reportData.summary.overall_distribution.excellent,
-    recentActivity: topStudentsData.summary.top_students_count,
+    totalScores: dashboardData.total_students,
+    averageScore: dashboardData.overall_average_score,
+    topPerformers: dashboardData.score_distribution.excellent,
+    recentActivity: dashboardData.total_students, // Using total students as recent activity
     trend: {
       totalScores: 'up', // Mock trend data - in real app this would come from API
       averageScore: 'up',
@@ -156,21 +151,37 @@ export default function Dashboard() {
   }
 
   // Prepare chart data
+  const totalScores = Object.values(dashboardData.score_distribution).reduce((sum, count) => sum + count, 0)
   const performanceDistribution = [
-    { name: "Excellent", value: reportData.summary.overall_distribution.excellent, percentage: reportData.summary.percentages.excellent },
-    { name: "Good", value: reportData.summary.overall_distribution.good, percentage: reportData.summary.percentages.good },
-    { name: "Average", value: reportData.summary.overall_distribution.average, percentage: reportData.summary.percentages.average },
-    { name: "Below Average", value: reportData.summary.overall_distribution.below_average, percentage: reportData.summary.percentages.below_average },
+    { 
+      name: "Excellent", 
+      value: dashboardData.score_distribution.excellent, 
+      percentage: ((dashboardData.score_distribution.excellent / totalScores) * 100).toFixed(1)
+    },
+    { 
+      name: "Good", 
+      value: dashboardData.score_distribution.good, 
+      percentage: ((dashboardData.score_distribution.good / totalScores) * 100).toFixed(1)
+    },
+    { 
+      name: "Average", 
+      value: dashboardData.score_distribution.average, 
+      percentage: ((dashboardData.score_distribution.average / totalScores) * 100).toFixed(1)
+    },
+    { 
+      name: "Below Average", 
+      value: dashboardData.score_distribution.below_average, 
+      percentage: ((dashboardData.score_distribution.below_average / totalScores) * 100).toFixed(1)
+    },
   ]
 
-  const topSubjects = reportData.subjects
-    .map(subject => ({
-      name: subject.subject_name.split(' ')[0], // Shortened name
-      excellent: subject.statistics.excellent,
-      total: subject.statistics.total_students,
-      percentage: ((subject.statistics.excellent / subject.statistics.total_students) * 100).toFixed(1)
+  const topSubjects = Object.entries(dashboardData.average_scores_per_subject)
+    .map(([key, score]) => ({
+      name: key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' '), // Format subject name
+      score: score,
+      percentage: ((score / 10) * 100).toFixed(1) // Convert to percentage based on max score of 10
     }))
-    .sort((a, b) => b.excellent - a.excellent)
+    .sort((a, b) => b.score - a.score)
     .slice(0, 5)
 
   const getTrendIcon = (trend: 'up' | 'down' | 'neutral') => {
@@ -224,7 +235,7 @@ export default function Dashboard() {
         <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900">
           <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/10 rounded-full -translate-y-10 translate-x-10"></div>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Scores</CardTitle>
+            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Students</CardTitle>
             <div className="p-2 bg-blue-500/20 rounded-lg">
               <BarChart3 className="h-5 w-5 text-blue-600" />
             </div>
@@ -236,7 +247,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-1 mt-2">
               {getTrendIcon(dashboardStats.trend.totalScores)}
               <p className={`text-sm font-medium ${getTrendColor(dashboardStats.trend.totalScores)}`}>
-                +12% from last month
+                +12% from last year
               </p>
             </div>
           </CardContent>
@@ -257,7 +268,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-1 mt-2">
               {getTrendIcon(dashboardStats.trend.averageScore)}
               <p className={`text-sm font-medium ${getTrendColor(dashboardStats.trend.averageScore)}`}>
-                +2.1% from last month
+                +2.1% from last year
               </p>
             </div>
           </CardContent>
@@ -278,7 +289,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-1 mt-2">
               {getTrendIcon(dashboardStats.trend.topPerformers)}
               <p className={`text-sm font-medium ${getTrendColor(dashboardStats.trend.topPerformers)}`}>
-                +8% from last month
+                +8% from last year
               </p>
             </div>
           </CardContent>
@@ -294,13 +305,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-              {topStudentsData.summary.total_group_a_students.toLocaleString()}
-            </div>
-            <div className="flex items-center gap-1 mt-2">
-              <ArrowUpRight className="h-4 w-4 text-green-600" />
-              <p className="text-sm font-medium text-green-600">
-                +5% from last month
-              </p>
+              {dashboardData.total_students.toLocaleString()}
             </div>
           </CardContent>
         </Card>
@@ -390,7 +395,7 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom Section */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-1">
         
         {/* Top Performing Subjects */}
         <Card>
@@ -400,86 +405,86 @@ export default function Dashboard() {
               Top Performing Subjects
             </CardTitle>
             <CardDescription>
-              Subjects with highest excellent scores
+              Subjects with highest average scores
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={chartConfig} className="w-full h-[250px]">
+            <ChartContainer config={chartConfig} className="w-full h-[450px]">
               <BarChart data={topSubjects}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" fontSize={12} />
                 <YAxis fontSize={12} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="excellent" fill={COLORS.excellent} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="score" fill={COLORS.good} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ChartContainer>
           </CardContent>
         </Card>
 
-        {/* Recent Highlights */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-yellow-600" />
-              Recent Highlights
-            </CardTitle>
-            <CardDescription>
-              Key achievements and statistics
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-500/20 rounded-lg">
-                  <Award className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-green-800 dark:text-green-200">Excellent Performers</p>
-                  <p className="text-sm text-green-600 dark:text-green-400">
-                    {reportData.summary.percentages.excellent}% of all students
-                  </p>
-                </div>
-              </div>
-              <div className="text-2xl font-bold text-green-700 dark:text-green-300">
-                {reportData.summary.overall_distribution.excellent.toLocaleString()}
-              </div>
-            </div>
+        {/*/!* Recent Highlights *!/*/}
+        {/*<Card>*/}
+        {/*  <CardHeader>*/}
+        {/*    <CardTitle className="flex items-center gap-2">*/}
+        {/*      <Award className="h-5 w-5 text-yellow-600" />*/}
+        {/*      Recent Highlights*/}
+        {/*    </CardTitle>*/}
+        {/*    <CardDescription>*/}
+        {/*      Key achievements and statistics*/}
+        {/*    </CardDescription>*/}
+        {/*  </CardHeader>*/}
+        {/*  <CardContent className="space-y-4">*/}
+        {/*    <div className="flex items-center justify-between p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">*/}
+        {/*      <div className="flex items-center gap-3">*/}
+        {/*        <div className="p-2 bg-green-500/20 rounded-lg">*/}
+        {/*          <Award className="h-5 w-5 text-green-600" />*/}
+        {/*        </div>*/}
+        {/*        <div>*/}
+        {/*          <p className="font-medium text-green-800 dark:text-green-200">Excellent Performers</p>*/}
+        {/*          <p className="text-sm text-green-600 dark:text-green-400">*/}
+        {/*            {((dashboardData.score_distribution.excellent / totalScores) * 100).toFixed(1)}% of all students*/}
+        {/*          </p>*/}
+        {/*        </div>*/}
+        {/*      </div>*/}
+        {/*      <div className="text-2xl font-bold text-green-700 dark:text-green-300">*/}
+        {/*        {dashboardData.score_distribution.excellent.toLocaleString()}*/}
+        {/*      </div>*/}
+        {/*    </div>*/}
 
-            <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-500/20 rounded-lg">
-                  <TrendingUp className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-blue-800 dark:text-blue-200">Highest Average</p>
-                  <p className="text-sm text-blue-600 dark:text-blue-400">
-                    Top students group
-                  </p>
-                </div>
-              </div>
-              <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
-                {topStudentsData.summary.top_students_stats.average_score_mean.toFixed(1)}
-              </div>
-            </div>
+        {/*    <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">*/}
+        {/*      <div className="flex items-center gap-3">*/}
+        {/*        <div className="p-2 bg-blue-500/20 rounded-lg">*/}
+        {/*          <TrendingUp className="h-5 w-5 text-blue-600" />*/}
+        {/*        </div>*/}
+        {/*        <div>*/}
+        {/*          <p className="font-medium text-blue-800 dark:text-blue-200">Highest Average</p>*/}
+        {/*          <p className="text-sm text-blue-600 dark:text-blue-400">*/}
+        {/*            Top students group*/}
+        {/*          </p>*/}
+        {/*        </div>*/}
+        {/*      </div>*/}
+        {/*      <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">*/}
+        {/*        {dashboardData.overall_average_score.toFixed(1)}*/}
+        {/*      </div>*/}
+        {/*    </div>*/}
 
-            <div className="flex items-center justify-between p-4 bg-purple-50 dark:bg-purple-950 rounded-lg border border-purple-200 dark:border-purple-800">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-500/20 rounded-lg">
-                  <Users className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-purple-800 dark:text-purple-200">Total Students</p>
-                  <p className="text-sm text-purple-600 dark:text-purple-400">
-                    Group A participants
-                  </p>
-                </div>
-              </div>
-              <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">
-                {topStudentsData.summary.total_group_a_students.toLocaleString()}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/*    <div className="flex items-center justify-between p-4 bg-purple-50 dark:bg-purple-950 rounded-lg border border-purple-200 dark:border-purple-800">*/}
+        {/*      <div className="flex items-center gap-3">*/}
+        {/*        <div className="p-2 bg-purple-500/20 rounded-lg">*/}
+        {/*          <Users className="h-5 w-5 text-purple-600" />*/}
+        {/*        </div>*/}
+        {/*        <div>*/}
+        {/*          <p className="font-medium text-purple-800 dark:text-purple-200">Total Students</p>*/}
+        {/*          <p className="text-sm text-purple-600 dark:text-purple-400">*/}
+        {/*            Group A participants*/}
+        {/*          </p>*/}
+        {/*        </div>*/}
+        {/*      </div>*/}
+        {/*      <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">*/}
+        {/*        {dashboardData.total_students.toLocaleString()}*/}
+        {/*      </div>*/}
+        {/*    </div>*/}
+        {/*  </CardContent>*/}
+        {/*</Card>*/}
       </div>
     </div>
   )

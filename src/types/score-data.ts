@@ -99,3 +99,27 @@ export interface TopStudentResponse {
         limit: number
     }
 }
+
+// Dashboard Summary Types
+export interface DashboardSummaryData {
+    total_students: number
+    overall_average_score: number
+    average_scores_per_subject: {
+        math: number
+        literature: number
+        foreign_lang: number
+        physics: number
+        chemistry: number
+        biology: number
+        history: number
+        geography: number
+        civic_education: number
+    }
+    score_distribution: {
+        excellent: number
+        good: number
+        average: number
+        below_average: number
+    }
+    generated_at: string
+}
